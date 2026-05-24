@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BGV — Background Verification System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root { --bg:#0a0c0f;--surface:#111418;--border:#1e2328;--border-light:#2a3038;--accent:#00d4aa;--accent-dim:#00d4aa22;--warn:#f59e0b;--danger:#ef4444;--text:#e2e8f0;--muted:#64748b; }
+    *{box-sizing:border-box;}
+    body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;min-height:100vh;font-size:16px;}
+    .mono{font-family:'IBM Plex Mono',monospace;}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;}
+    .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 12px;border-radius:5px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;}
+    .badge-clear{background:#00d4aa18;color:#00d4aa;border:1px solid #00d4aa44;}
+    .badge-flagged{background:#ef444418;color:#ef4444;border:1px solid #ef444444;}
+    .badge-idle{background:#64748b18;color:#64748b;border:1px solid #64748b44;}
+    .badge-cached{background:#818cf818;color:#818cf8;border:1px solid #818cf844;}
+    .badge-gen{background:#a78bfa18;color:#a78bfa;border:1px solid #a78bfa44;}
+    .badge-warn{background:#f59e0b18;color:#f59e0b;border:1px solid #f59e0b44;}
+    .badge-retry{background:#f97316;color:#fff;border:1px solid #f9731644;}
+    input{background:#0d1014;border:1px solid var(--border-light);color:var(--text);border-radius:7px;padding:11px 14px;font-size:15px;width:100%;font-family:'IBM Plex Sans',sans-serif;transition:border-color .2s;}
+    input:focus{outline:none;border-color:var(--accent);}
+    input::placeholder{color:var(--muted);}
+    input.aadhaar-input{font-family:'IBM Plex Mono',monospace;font-size:18px;letter-spacing:.12em;border-color:var(--accent);border-width:2px;}
+    input.aadhaar-input:focus{box-shadow:0 0 0 3px #00d4aa22;}
+    .btn-primary{background:var(--accent);color:#0a0c0f;font-weight:700;border-radius:7px;padding:13px 28px;font-size:15px;letter-spacing:.04em;cursor:pointer;border:none;transition:opacity .2s,transform .1s;width:100%;}
+    .btn-primary:hover{opacity:.88;} .btn-primary:active{transform:scale(.98);} .btn-primary:disabled{opacity:.4;cursor:not-allowed;}
+    .btn-ghost{background:transparent;color:var(--accent);border:1px solid var(--accent);border-radius:7px;padding:9px 20px;font-size:14px;cursor:pointer;transition:background .2s;}
+    .btn-ghost:hover{background:var(--accent-dim);} .btn-ghost:disabled{opacity:.4;cursor:not-allowed;}
+    .btn-ai{background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;border-radius:7px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .2s;display:flex;align-items:center;gap:7px;}
+    .btn-ai:hover{opacity:.85;} .btn-ai:disabled{opacity:.4;cursor:not-allowed;}
+    .tool-card{transition:border-color .3s;}
+    .tool-card.running{border-color:var(--accent);animation:pulse-border 1s infinite;}
+    .tool-card.completed{border-color:#00d4aa44;}
+    .tool-card.failed{border-color:#ef444444;}
+    .tool-card.cached{border-color:#818cf844;}
+    @keyframes pulse-border{0%,100%{border-color:var(--accent);box-shadow:0 0 0 0 #00d4aa22}50%{border-color:#00d4aa88;box-shadow:0 0 12px 0 #00d4aa33}}
+    .spinner{width:15px;height:15px;border:2px solid #7c3aed44;border-top-color:#a855f7;border-radius:50%;animation:spin .7s linear infinite;display:inline-block;}
+    @keyframes spin{to{transform:rotate(360deg);}}
+    .progress-bar{height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
+    .progress-fill{height:100%;background:var(--accent);transition:width .4s ease;border-radius:2px;}
+    .section-tab{padding:12px 22px;font-size:15px;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);transition:all .2s;font-weight:500;}
+    .section-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+    .section-tab:hover:not(.active){color:var(--text);}
+    .compare-table{width:100%;border-collapse:collapse;margin-bottom:20px;}
+    .compare-table th{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);}
+    .compare-table td{padding:12px 12px;font-size:15px;border-bottom:1px solid var(--border-light);vertical-align:middle;}
+    .compare-table tr:last-child td{border-bottom:none;}
+    .compare-table .field-label{color:var(--muted);font-size:13px;font-weight:500;}
+    .compare-table .db-val{font-family:'IBM Plex Mono',monospace;color:var(--text);}
+    .compare-table .hr-val{font-family:'IBM Plex Mono',monospace;}
+    .compare-table .hr-val.match{color:#00d4aa;}
+    .compare-table .hr-val.mismatch{color:#ef4444;font-weight:700;}
+    .compare-table .status-icon{font-size:18px;}
+    .kv-item{background:#0d1014;border-radius:8px;padding:14px 16px;}
+    .kv-label{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:6px;}
+    .kv-val{font-size:16px;font-family:'IBM Plex Mono',monospace;}
+    .grid-kv{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+    @media(max-width:900px){.grid-kv{grid-template-columns:1fr 1fr;}}
+    .checkbox-tool{display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:8px 10px;border-radius:7px;transition:background .15s;}
+    .checkbox-tool:hover{background:#ffffff08;}
+    .checkbox-tool input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer;margin-top:2px;flex-shrink:0;}
+    .tag{display:inline-block;background:#ef444418;color:#ef4444;border:1px solid #ef444430;border-radius:5px;padding:3px 10px;font-size:12px;font-family:'IBM Plex Mono',monospace;margin:3px;}
+    .audit-row:not(:last-child){border-bottom:1px solid var(--border);}
+    .btn-accept{background:linear-gradient(135deg,#059669,#10b981);color:#fff;font-weight:700;border:none;border-radius:7px;padding:11px 28px;font-size:15px;cursor:pointer;transition:opacity .2s;display:flex;align-items:center;gap:8px;}
+    .btn-accept:hover{opacity:.88;} .btn-accept:disabled{opacity:.4;cursor:not-allowed;}
+    .btn-reject{background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff;font-weight:700;border:none;border-radius:7px;padding:11px 28px;font-size:15px;cursor:pointer;transition:opacity .2s;display:flex;align-items:center;gap:8px;}
+    .btn-reject:hover{opacity:.88;} .btn-reject:disabled{opacity:.4;cursor:not-allowed;}
+    .decision-banner{border-radius:10px;padding:18px 22px;margin-bottom:24px;display:flex;align-items:center;gap:14px;}
+    .decision-banner.accepted{background:linear-gradient(135deg,#05966918,#10b98112);border:2px solid #10b98166;}
+    .decision-banner.rejected{background:linear-gradient(135deg,#dc262618,#ef444412);border:2px solid #ef444466;}
+    .ai-suggestion-box{background:linear-gradient(135deg,#7c3aed12,#a855f712);border:1px solid #7c3aed44;border-radius:8px;padding:14px 16px;margin-bottom:14px;}
+    .fade-in{animation:fadeIn .4s ease;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+    .report-wrapper{border-top:2px solid var(--border-light);margin-top:32px;padding-top:32px;}
+    .summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+    @media(max-width:900px){.summary-grid{grid-template-columns:1fr 1fr;}}
+    .summary-card{background:#0d1014;border-radius:10px;padding:18px 20px;border:1px solid var(--border);}
+    .summary-card-label{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:8px;}
+    .summary-card-val{font-size:26px;font-weight:700;font-family:'IBM Plex Mono',monospace;line-height:1;}
+    .summary-card-sub{font-size:13px;color:var(--muted);margin-top:6px;}
+    .aadhaar-hero{background:linear-gradient(135deg,#00d4aa0a,#00d4aa05);border:2px solid #00d4aa33;border-radius:10px;padding:20px;margin-bottom:20px;}
+    #toast{position:fixed;bottom:24px;right:24px;background:var(--surface);border:1px solid var(--border-light);color:var(--text);padding:14px 22px;border-radius:9px;font-size:15px;display:none;z-index:100;box-shadow:0 8px 32px #00000088;}
+    #toast.show{display:block;animation:fadeIn .3s ease;}
+    .key-input-wrap{position:relative;}
+    .key-input-wrap input{padding-right:72px;}
+    .key-save-btn{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:var(--accent);color:#0a0c0f;border:none;border-radius:5px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;}
+  </style>
+</head>
+<body>
+
+<header class="border-b" style="border-color:var(--border);">
+  <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg flex items-center justify-center" style="background:var(--accent);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0a0c0f" stroke-width="2.5"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+      </div>
+      <div>
+        <div class="font-bold tracking-widest uppercase" style="color:var(--accent);font-size:15px;">BGV System</div>
+        <div style="color:var(--muted);font-size:13px;">Aadhaar-based Background Verification — v3.0</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-4 flex-wrap">
+      <div style="color:var(--muted);font-size:13px;">API Key (AI suggestions)</div>
+      <div class="key-input-wrap" style="width:260px;">
+        <input id="openai-key" type="password" placeholder="ak-..." style="font-size:13px;padding:7px 76px 7px 12px;"/>
+        <button class="key-save-btn" onclick="saveKey()">SAVE</button>
+      </div>
+      <div class="flex items-center gap-2 mono" style="color:var(--muted);font-size:13px;">
+        <div class="w-2 h-2 rounded-full" style="background:var(--accent);"></div>
+        API ONLINE
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-8">
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+    <!-- LEFT: Form -->
+    <div class="lg:col-span-2 space-y-5">
+      <div class="card p-6">
+        <div class="flex items-center gap-2 mb-5">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--accent);"><path d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0"/></svg>
+          <h2 class="font-semibold tracking-widest uppercase" style="color:var(--accent);font-size:14px;">Candidate Verification</h2>
+        </div>
+
+        <div class="mb-5">
+          <div style="color:var(--muted);font-size:12px;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em;">Quick fill demo</div>
+          <div class="flex flex-wrap gap-2" id="demo-buttons"></div>
+        </div>
+
+        <div class="aadhaar-hero">
+          <label class="block uppercase tracking-wider mb-2" style="color:var(--accent);font-size:12px;">
+            🪪 Aadhaar Number <span style="color:#ef4444;">*</span>
+          </label>
+          <input id="f-aadhaar" class="aadhaar-input" type="text" placeholder="XXXX-XXXX-XXXX" maxlength="14" oninput="formatAadhaar(this)"/>
+          <div style="color:var(--muted);font-size:12px;margin-top:8px;">Primary key — pulls name, DOB &amp; address from DB automatically</div>
+        </div>
+
+        <div style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;">HR Enters Candidate's Claimed Details</div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block uppercase tracking-wider mb-2" style="color:var(--muted);font-size:12px;">Full Name *</label>
+            <input id="f-name" type="text" placeholder="Candidate's full name" oninput="updateRerunPreview()"/>
+          </div>
+          <div>
+            <label class="block uppercase tracking-wider mb-2" style="color:var(--muted);font-size:12px;">Date of Birth *</label>
+            <input id="f-dob" type="date" onchange="showDobPreview(this.value);updateRerunPreview()"/>
+            <div id="dob-preview" style="color:var(--muted);font-size:12px;margin-top:4px;font-family:'IBM Plex Mono',monospace;"></div>
+          </div>
+          <div>
+            <label class="block uppercase tracking-wider mb-2" style="color:var(--muted);font-size:12px;">Current Address *</label>
+            <input id="f-address" type="text" placeholder="Address as provided by candidate" oninput="updateRerunPreview()"/>
+          </div>
+        </div>
+
+        <button class="btn-primary mt-6" id="btn-verify" onclick="startVerification()">
+          Run Verification
+        </button>
+      </div>
+
+      <!-- Re-verify Tools panel -->
+      <div class="card p-6" id="rerun-panel" style="display:none;">
+        <div class="flex items-center gap-2 mb-4">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--accent);"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <h3 class="font-semibold uppercase tracking-widest" style="color:var(--accent);font-size:14px;">Re-verify Tools</h3>
+        </div>
+
+        <div class="mb-4">
+          <label class="block uppercase tracking-wider mb-2" style="color:var(--muted);font-size:12px;">HR Feedback / Reason</label>
+          <input id="rerun-feedback" type="text" placeholder="e.g. DOB entered incorrectly"/>
+        </div>
+        <div class="flex gap-2 mb-4">
+          <button class="btn-ai flex-1 justify-center" id="btn-ai-suggest" onclick="aiSuggest(false)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+            AI Suggest
+          </button>
+          <button class="btn-ai flex-1 justify-center" id="btn-ai-run" onclick="aiSuggest(true)" style="background:linear-gradient(135deg,#059669,#10b981);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            AI Suggest &amp; Run
+          </button>
+          <button class="btn-ghost" onclick="clearSuggestion()" style="padding:9px 10px;font-size:13px;">✕</button>
+        </div>
+        <div id="ai-suggestion-box" class="ai-suggestion-box" style="display:none;">
+          <div class="flex items-center gap-2 mb-2">
+            <span style="color:#a855f7;font-size:12px;font-weight:700;letter-spacing:.08em;">✨ AI SUGGESTION</span>
+          </div>
+          <div id="ai-reasoning" style="color:#c4b5fd;font-size:14px;"></div>
+          <div style="color:var(--muted);font-size:12px;margin-top:6px;">Checkboxes pre-filled — adjust manually if needed.</div>
+        </div>
+        <div class="space-y-1 mb-5">
+          <label class="checkbox-tool">
+            <input type="checkbox" id="cb-t1"/>
+            <div>
+              <div style="font-size:15px;font-weight:500;">Tool 1 — Personal Identity</div>
+              <div style="color:var(--muted);font-size:13px;">Re-verify name, DOB and address against Aadhaar DB</div>
+            </div>
+          </label>
+          <label class="checkbox-tool">
+            <input type="checkbox" id="cb-t2"/>
+            <div>
+              <div style="font-size:15px;font-weight:500;">Tool 2 — Criminal Background</div>
+              <div style="color:var(--muted);font-size:13px;">Records, Interpol, sex offender registry</div>
+            </div>
+          </label>
+          <label class="checkbox-tool">
+            <input type="checkbox" id="cb-t3"/>
+            <div>
+              <div style="font-size:15px;font-weight:500;">Tool 3 — Financial &amp; Fraud</div>
+              <div style="color:var(--muted);font-size:13px;">Credit, sanctions, bankruptcy, PEP</div>
+            </div>
+          </label>
+        </div>
+        <div class="p-3 rounded-lg mb-4" style="background:#00d4aa08;border:1px solid #00d4aa22;">
+          <div style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Values that will be submitted</div>
+          <div style="font-size:12px;font-family:'IBM Plex Mono',monospace;color:var(--muted);line-height:1.8;">
+            <span style="color:var(--accent);">NAME</span> <span id="rerun-preview-name">—</span><br/>
+            <span style="color:var(--accent);">DOB&nbsp;&nbsp;</span> <span id="rerun-preview-dob">—</span><br/>
+            <span style="color:var(--accent);">ADDR</span> <span id="rerun-preview-addr">—</span>
+          </div>
+        </div>
+        <button class="btn-ghost w-full" id="btn-rerun" onclick="rerunTools()">Run Selected Checks</button>
+      </div>
+    </div>
+
+    <!-- RIGHT: Agent Status -->
+    <div class="lg:col-span-3">
+      <div class="card p-6">
+        <div class="uppercase tracking-widest mb-5" style="color:var(--muted);font-size:13px;">Agent Execution Status</div>
+        <div id="agent-idle-msg" class="text-center py-12" style="color:var(--muted);">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin:0 auto 12px;opacity:.4;"><path d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0"/></svg>
+          <div style="font-size:16px;">Enter Aadhaar number and candidate details</div>
+          <div style="font-size:14px;margin-top:6px;">All 3 tools run in parallel — results shown below</div>
+        </div>
+        <div class="space-y-4" id="tool-progress" style="display:none;">
+          <div class="tool-card card p-5 rounded-xl" id="tc1">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center mono font-bold" style="background:var(--border);color:var(--muted);font-size:14px;">01</div>
+                <div>
+                  <div style="font-size:16px;font-weight:600;">Personal Identity Verification</div>
+                  <div style="color:var(--muted);font-size:13px;margin-top:2px;" id="tc1-sub">Awaiting execution</div>
+                </div>
+              </div>
+              <span class="badge badge-idle" id="tc1-badge">IDLE</span>
+            </div>
+            <div class="progress-bar mt-4"><div class="progress-fill" id="tc1-prog" style="width:0%"></div></div>
+          </div>
+          <div class="tool-card card p-5 rounded-xl" id="tc2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center mono font-bold" style="background:var(--border);color:var(--muted);font-size:14px;">02</div>
+                <div>
+                  <div style="font-size:16px;font-weight:600;">Criminal Background Check</div>
+                  <div style="color:var(--muted);font-size:13px;margin-top:2px;" id="tc2-sub">Awaiting execution</div>
+                </div>
+              </div>
+              <span class="badge badge-idle" id="tc2-badge">IDLE</span>
+            </div>
+            <div class="progress-bar mt-4"><div class="progress-fill" id="tc2-prog" style="width:0%"></div></div>
+          </div>
+          <div class="tool-card card p-5 rounded-xl" id="tc3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center mono font-bold" style="background:var(--border);color:var(--muted);font-size:14px;">03</div>
+                <div>
+                  <div style="font-size:16px;font-weight:600;">Financial &amp; Fraud Check</div>
+                  <div style="color:var(--muted);font-size:13px;margin-top:2px;" id="tc3-sub">Awaiting execution</div>
+                </div>
+              </div>
+              <span class="badge badge-idle" id="tc3-badge">IDLE</span>
+            </div>
+            <div class="progress-bar mt-4"><div class="progress-fill" id="tc3-prog" style="width:0%"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REPORT SECTION -->
+  <div id="report-section" style="display:none;" class="report-wrapper fade-in">
+    <div class="flex items-start justify-between flex-wrap gap-4 mb-6">
+      <div>
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:6px;">Verification Report</div>
+        <div style="font-size:24px;font-weight:700;" id="report-candidate-name">—</div>
+        <div class="mono" style="color:var(--muted);font-size:13px;margin-top:4px;" id="report-aadhaar">—</div>
+        <div style="color:var(--muted);font-size:13px;margin-top:2px;" id="report-timestamp">—</div>
+
+      </div>
+      <span class="badge" id="report-status-badge" style="font-size:14px;padding:8px 20px;">—</span>
+    </div>
+
+    <div class="summary-grid" id="summary-cards"></div>
+
+    <!-- Decision panel — shown after verification, hidden once decided -->
+    <div id="decision-panel" style="display:none;">
+      <div id="decision-banner" style="display:none;"></div>
+      <div id="decision-buttons" class="flex gap-4 mb-6 flex-wrap">
+        <div class="flex-1" style="min-width:180px;">
+          <div style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">HR Remarks (optional)</div>
+          <input id="decision-remarks" type="text" placeholder="e.g. All checks passed, suitable for role"/>
+        </div>
+        <div class="flex gap-3 items-end">
+          <button class="btn-accept" id="btn-accept" onclick="submitDecision('accepted')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            Accept Candidate
+          </button>
+          <button class="btn-reject" id="btn-reject" onclick="submitDecision('rejected')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            Reject Candidate
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="flex border-b flex-wrap" style="border-color:var(--border);">
+        <button class="section-tab active" onclick="switchTab('identity')">🪪 Identity</button>
+        <button class="section-tab" onclick="switchTab('criminal')">⚖️ Criminal</button>
+        <button class="section-tab" onclick="switchTab('financial')">💳 Financial</button>
+        <button class="section-tab" onclick="switchTab('audit')">📋 Audit Trail</button>
+      </div>
+      <div class="p-8">
+        <div id="tab-identity"></div>
+        <div id="tab-criminal" style="display:none;"></div>
+        <div id="tab-financial" style="display:none;"></div>
+        <div id="tab-audit" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  const API = 'http://localhost:8000';
+
+  // ── FIXED: threadId replaces sessionId — stores thread_id from /verify response
+  let threadId = null, currentReport = null, activeTab = 'identity', savedKey = '';
+  const tabIds = ['identity','criminal','financial','audit'];
+
+  async function loadDemos() {
+    try {
+      const res = await fetch(API + '/demo-candidates');
+      const data = await res.json();
+      const dc = document.getElementById('demo-buttons');
+      Object.entries(data.candidates).forEach(([name, info]) => {
+        const b = document.createElement('button');
+        b.className = 'btn-ghost'; b.style.fontSize = '13px'; b.style.padding = '6px 14px';
+        b.textContent = name.split(' ')[0]; b.title = name;
+        b.onclick = () => {
+          document.getElementById('f-aadhaar').value = info.aadhaar;
+          document.getElementById('f-name').value = name;
+          document.getElementById('f-dob').value = info.dob;
+          document.getElementById('f-address').value = info.address;
+          showDobPreview(info.dob);
+          updateRerunPreview();
+        };
+        dc.appendChild(b);
+      });
+    } catch(e) {}
+  }
+  loadDemos();
+
+  function formatAadhaar(input) {
+    let v = input.value.replace(/\D/g, '').slice(0, 12);
+    const parts = [];
+    for (let i = 0; i < v.length; i += 4) parts.push(v.slice(i, i+4));
+    input.value = parts.join('-');
+  }
+
+  function normalizeDob(rawDob) {
+    if (!rawDob) return '';
+    if (rawDob.includes('/')) {
+      const p = rawDob.split('/');
+      return p.length === 3
+        ? (p[2].length===4
+            ? `${p[2]}-${p[0].padStart(2,'0')}-${p[1].padStart(2,'0')}`
+            : `${p[0]}-${p[1].padStart(2,'0')}-${p[2].padStart(2,'0')}`)
+        : rawDob;
+    }
+    return rawDob;
+  }
+
+  function updateRerunPreview() {
+    const name = document.getElementById('f-name').value.trim();
+    const dob  = document.getElementById('f-dob').value;
+    const addr = document.getElementById('f-address').value.trim();
+    const pn = document.getElementById('rerun-preview-name');
+    const pd = document.getElementById('rerun-preview-dob');
+    const pa = document.getElementById('rerun-preview-addr');
+    if (pn) pn.textContent = name || '—';
+    if (pd) pd.textContent = dob  || '—';
+    if (pa) pa.textContent = addr || '—';
+  }
+
+  function showDobPreview(val) {
+    const el = document.getElementById('dob-preview');
+    el.textContent = val ? 'Sending to API: ' + val : '';
+  }
+
+  function saveKey() {
+    savedKey = document.getElementById('openai-key').value.trim();
+    showToast(savedKey ? 'API key saved ✓' : 'Key cleared.');
+  }
+
+  async function startVerification() {
+    const aadhaar = document.getElementById('f-aadhaar').value.trim();
+    const name    = document.getElementById('f-name').value.trim();
+    const dob     = normalizeDob(document.getElementById('f-dob').value);
+    const addr    = document.getElementById('f-address').value.trim();
+
+    if (!aadhaar || !name || !dob || !addr) { showToast('Please fill all fields including Aadhaar.'); return; }
+
+    document.getElementById('btn-verify').disabled = true;
+    document.getElementById('btn-verify').textContent = 'Verifying...';
+    document.getElementById('report-section').style.display = 'none';
+    resetTools();
+
+    // All 3 tools run in parallel — animate all simultaneously
+    const animP = animateTools([true, true, true]);
+    try {
+      const res = await fetch(API+'/verify', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({aadhaar, hr_name: name, hr_dob: dob, hr_address: addr})
+      });
+      await animP;
+      const json = await res.json();
+      if (!res.ok) { showToast(json.detail || 'Error'); resetBtn(); return; }
+
+      // ── FIXED: store thread_id (not session_id) from response
+      threadId      = json.thread_id;
+      currentReport = json.report;
+
+      markFinalStatuses(json.report);
+      renderReport(json.report);
+      document.getElementById('report-section').style.display = 'block';
+      document.getElementById('rerun-panel').style.display = 'block';
+      document.getElementById('decision-panel').style.display = 'block';
+      updateRerunPreview();
+      setTimeout(() => document.getElementById('report-section').scrollIntoView({behavior:'smooth', block:'start'}), 100);
+      showToast('✓ Verification complete — review and accept or reject');
+    } catch(e) { showToast('Cannot reach server on port 8000.'); }
+    resetBtn();
+  }
+
+  async function rerunTools() {
+    // ── FIXED: check threadId (not sessionId)
+    if (!threadId) { showToast('Run full verification first.'); return; }
+
+    const t1 = document.getElementById('cb-t1').checked;
+    const t2 = document.getElementById('cb-t2').checked;
+    const t3 = document.getElementById('cb-t3').checked;
+    const fb = document.getElementById('rerun-feedback').value.trim();
+    if (!t1 && !t2 && !t3) { showToast('Select at least one tool.'); return; }
+
+    const currentName = document.getElementById('f-name').value.trim();
+    const currentDob  = normalizeDob(document.getElementById('f-dob').value);
+    const currentAddr = document.getElementById('f-address').value.trim();
+
+    document.getElementById('btn-rerun').disabled = true;
+    document.getElementById('btn-rerun').textContent = 'Running checks...';
+    document.getElementById('report-section').style.display = 'none';
+
+    const animP = animateTools([t1, t2, t3]);
+    try {
+      const res = await fetch(API+'/rerun', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          // ── FIXED: send thread_id (not session_id)
+          thread_id:   threadId,
+          rerun_tool1: t1, rerun_tool2: t2, rerun_tool3: t3,
+          feedback:    fb || null,
+          hr_name:     currentName || null,
+          hr_dob:      currentDob  || null,
+          hr_address:  currentAddr || null,
+        })
+      });
+      await animP;
+      const json = await res.json();
+      if (!res.ok) { showToast(json.detail || 'Error'); }
+      else {
+        currentReport = json.report;
+        markFinalStatuses(json.report);
+        renderReport(json.report);
+        document.getElementById('report-section').style.display = 'block';
+        document.getElementById('decision-panel').style.display = 'block';
+        document.getElementById('ai-suggestion-box').style.display = 'none';
+        showToast('Re-run complete — review and accept or reject');
+        setTimeout(() => document.getElementById('report-section').scrollIntoView({behavior:'smooth', block:'start'}), 100);
+      }
+    } catch(e) { showToast('Error contacting server.'); }
+    document.getElementById('btn-rerun').disabled = false;
+    document.getElementById('btn-rerun').textContent = 'Run Selected Checks';
+  }
+
+  async function aiSuggest(autoRun = false) {
+    const feedback = document.getElementById('rerun-feedback').value.trim();
+    if (!feedback) { showToast('Enter HR feedback first.'); return; }
+    // ── FIXED: check threadId
+    if (!threadId) { showToast('Run full verification first.'); return; }
+    const key = savedKey || document.getElementById('openai-key').value.trim();
+    if (!key) { showToast('Enter your API key at top right.'); return; }
+
+    const suggestBtn = document.getElementById('btn-ai-suggest');
+    const runBtn     = document.getElementById('btn-ai-run');
+    suggestBtn.disabled = true; runBtn.disabled = true;
+    const activeBtn = autoRun ? runBtn : suggestBtn;
+    activeBtn.innerHTML = '<span class="spinner"></span> ' + (autoRun ? 'Analysing & Running...' : 'Thinking...');
+
+    try {
+      const res = await fetch(API + '/suggest-rerun', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({feedback, openai_key: key})
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.detail || 'AI error'); resetAIBtns(); return; }
+
+      document.getElementById('cb-t1').checked = !!data.tool1;
+      document.getElementById('cb-t2').checked = !!data.tool2;
+      document.getElementById('cb-t3').checked = !!data.tool3;
+      document.getElementById('ai-reasoning').textContent = data.reasoning || '';
+      document.getElementById('ai-suggestion-box').style.display = 'block';
+
+      const toolNames = [data.tool1&&'Identity', data.tool2&&'Criminal', data.tool3&&'Financial'].filter(Boolean);
+
+      if (!autoRun) {
+        showToast('AI suggests re-running: ' + toolNames.join(', ') + ' — click Re-run to execute.');
+      } else {
+        if (!data.tool1 && !data.tool2 && !data.tool3) {
+          showToast('AI found no tools need re-running.'); resetAIBtns(); return;
+        }
+        showToast('AI selected ' + toolNames.join(', ') + ' — running checks...');
+
+        const currentName = document.getElementById('f-name').value.trim();
+        const currentDob  = normalizeDob(document.getElementById('f-dob').value);
+        const currentAddr = document.getElementById('f-address').value.trim();
+
+        document.getElementById('report-section').style.display = 'none';
+        const animP = animateTools([!!data.tool1, !!data.tool2, !!data.tool3]);
+
+        const rerunRes = await fetch(API + '/rerun', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            // ── FIXED: send thread_id
+            thread_id:   threadId,
+            rerun_tool1: !!data.tool1,
+            rerun_tool2: !!data.tool2,
+            rerun_tool3: !!data.tool3,
+            feedback:    feedback,
+            hr_name:     currentName || null,
+            hr_dob:      currentDob  || null,
+            hr_address:  currentAddr || null,
+          })
+        });
+
+        await animP;
+        const rerunJson = await rerunRes.json();
+        if (!rerunRes.ok) { showToast(rerunJson.detail || 'Rerun error'); resetAIBtns(); return; }
+
+        currentReport = rerunJson.report;
+        markFinalStatuses(rerunJson.report);
+        renderReport(rerunJson.report);
+        document.getElementById('report-section').style.display = 'block';
+        document.getElementById('decision-panel').style.display = 'block';
+        showToast('✅ AI re-run complete — ' + toolNames.join(', ') + ' updated.');
+        setTimeout(() => document.getElementById('report-section').scrollIntoView({behavior:'smooth', block:'start'}), 100);
+      }
+    } catch(e) { showToast('AI error — check key/connection.'); }
+    resetAIBtns();
+  }
+
+  function resetAIBtns() {
+    const s = document.getElementById('btn-ai-suggest');
+    const r = document.getElementById('btn-ai-run');
+    s.disabled = false; r.disabled = false;
+    s.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg> AI Suggest`;
+    r.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> AI Suggest &amp; Run`;
+  }
+
+  function clearSuggestion() {
+    ['cb-t1','cb-t2','cb-t3'].forEach(id => document.getElementById(id).checked = false);
+    document.getElementById('ai-suggestion-box').style.display = 'none';
+  }
+
+  function switchTab(tab) {
+    activeTab = tab;
+    tabIds.forEach(t => document.getElementById('tab-'+t).style.display = t===tab ? 'block' : 'none');
+    document.querySelectorAll('.section-tab').forEach((el,i) => el.classList.toggle('active', tabIds[i]===tab));
+    if (currentReport) renderReport(currentReport);
+  }
+
+  function setToolStatus(n, status, sub, pct) {
+    const card=document.getElementById('tc'+n), badge=document.getElementById('tc'+n+'-badge');
+    const subEl=document.getElementById('tc'+n+'-sub'), prog=document.getElementById('tc'+n+'-prog');
+    card.className = 'tool-card card p-5 rounded-xl ' + status;
+    subEl.textContent = sub; prog.style.width = pct + '%';
+    const m = {
+      running:['badge-warn','RUNNING'], completed:['badge-clear','DONE'],
+      failed:['badge-flagged','FAILED'], cached:['badge-cached','CACHED'],
+      idle:['badge-idle','IDLE'], timeout:['badge-flagged','TIMEOUT']
+    };
+    const [cls,lbl] = m[status] || ['badge-idle', status.toUpperCase()];
+    badge.className = 'badge ' + cls; badge.textContent = lbl;
+  }
+
+  function resetTools() {
+    document.getElementById('agent-idle-msg').style.display = 'none';
+    document.getElementById('tool-progress').style.display = 'block';
+    [1,2,3].forEach(n => setToolStatus(n, 'idle', 'Awaiting execution', 0));
+  }
+
+  async function animateTools(flags) {
+    // All parallel — animate simultaneously using Promise.all feel
+    const promises = flags.map(async (run, i) => {
+      const n = i + 1;
+      if (!run) { setToolStatus(n, 'cached', 'Using cached result', 100); return; }
+      setToolStatus(n, 'running', 'Querying Aadhaar database...', 30);
+      await sleep(400);
+      setToolStatus(n, 'running', 'Cross-referencing records...', 70);
+      await sleep(500);
+    });
+    await Promise.all(promises);
+  }
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function resetBtn() { document.getElementById('btn-verify').disabled=false; document.getElementById('btn-verify').textContent='Run Verification'; }
+
+  function markFinalStatuses(report) {
+    [[report.personal_identity,1],[report.criminal_background,2],[report.financial_fraud,3]].forEach(([sec,n]) => {
+      const status = sec.cached ? 'cached' : sec.status;
+      const retryNote = sec.retry_count > 0 ? ` (retried ${sec.retry_count}x)` : '';
+      const sub = sec.cached
+        ? `Cached — v${sec.version}`
+        : sec.status==='completed' ? `Completed — v${sec.version}${retryNote}`
+        : sec.status==='failed'    ? `Failed — ${sec.error_message||'error'}`
+        : sec.status==='timeout'   ? `Timeout after ${10}s`
+        : sec.status;
+      setToolStatus(n, status, sub, 100);
+    });
+  }
+
+  function renderReport(report) {
+    renderHeader(report);
+    renderSummaryCards(report);
+    if (activeTab==='identity')  renderIdentity(report.personal_identity);
+    if (activeTab==='criminal')  renderCriminal(report.criminal_background);
+    if (activeTab==='financial') renderFinancial(report.financial_fraud);
+    if (activeTab==='audit')     renderAudit(report.audit_trail);
+  }
+
+  const rC = s => s>=7 ? '#ef4444' : s>=4 ? '#f59e0b' : '#00d4aa';
+
+  function renderHeader(report) {
+    const es = report.executive_summary || {}, flagged = es.overall_status === 'FLAGGED';
+    document.getElementById('report-candidate-name').textContent = report.candidate_name || '—';
+    document.getElementById('report-aadhaar').textContent = 'Aadhaar: ' + (report.aadhaar || '—');
+    document.getElementById('report-timestamp').textContent = 'Generated ' + new Date(report.generated_at).toLocaleString();
+    const sb = document.getElementById('report-status-badge');
+    sb.textContent = es.overall_status || '—';
+    sb.className = 'badge ' + (flagged ? 'badge-flagged' : 'badge-clear');
+    sb.style.cssText = 'font-size:14px;padding:8px 20px;';
+
+    // Show decision result banner if HR has already decided
+    const dec = report.hr_decision;
+    const banner  = document.getElementById('decision-banner');
+    const buttons = document.getElementById('decision-buttons');
+    if (dec === 'accepted' || dec === 'rejected') {
+      const isAcc = dec === 'accepted';
+      banner.className = 'decision-banner ' + dec;
+      banner.innerHTML = `
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="${isAcc?'#10b981':'#ef4444'}" stroke-width="2.5">
+          ${isAcc
+            ? '<path d="M20 6L9 17l-5-5"/>'
+            : '<path d="M18 6L6 18M6 6l12 12"/>'}
+        </svg>
+        <div>
+          <div style="font-size:17px;font-weight:700;color:${isAcc?'#10b981':'#ef4444'}">
+            Candidate ${isAcc ? 'ACCEPTED' : 'REJECTED'}
+          </div>
+          <div style="color:var(--muted);font-size:13px;margin-top:3px;">
+            This verification has been finalised — no further action required
+          </div>
+        </div>`;
+      banner.style.display = 'flex';
+      buttons.style.display = 'none';   // hide buttons once decided
+    } else {
+      banner.style.display  = 'none';
+      buttons.style.display = 'flex';   // show buttons until decided
+    }
+  }
+
+  function renderSummaryCards(report) {
+    const es = report.executive_summary || {}, rc = rC(es.overall_risk_score), flagged = es.overall_status==='FLAGGED';
+    document.getElementById('summary-cards').innerHTML = `
+      <div class="summary-card">
+        <div class="summary-card-label">Overall Risk Score</div>
+        <div class="summary-card-val" style="color:${rc}">${es.overall_risk_score??'—'}<span style="font-size:16px;color:var(--muted)">/10</span></div>
+        <div class="summary-card-sub">${es.risk_level||'—'} Risk</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-card-label">Verification Status</div>
+        <div class="summary-card-val" style="font-size:20px;color:${flagged?'#ef4444':'#00d4aa'}">${es.overall_status||'—'}</div>
+        <div class="summary-card-sub">${flagged ? 'Requires review' : 'All checks passed'}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-card-label">Sections Completed</div>
+        <div class="summary-card-val">${es.sections_completed??'—'}<span style="font-size:16px;color:var(--muted)">/${es.sections_total||3}</span></div>
+        <div class="summary-card-sub">Agents executed</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-card-label">Active Alerts</div>
+        <div class="summary-card-val" style="color:${flagged?'#ef4444':'#00d4aa'}">${flagged?'YES':'NONE'}</div>
+        <div class="summary-card-sub">${flagged?'Flags raised':'No flags raised'}</div>
+      </div>`;
+  }
+
+  function retryBadge(sec) {
+    if (!sec.retry_count) return '';
+    return `<span class="badge badge-retry">↺ retried ${sec.retry_count}x</span>`;
+  }
+
+  function renderIdentity(sec) {
+    const d = sec.data || {};
+    if (sec.status === 'failed' || sec.status === 'timeout') {
+      document.getElementById('tab-identity').innerHTML = errHtml(sec.error_message || d.error, sec.status, sec.retry_count);
+      return;
+    }
+    const mismatches = d.mismatches || [];
+    const hasMismatch = mismatches.length > 0;
+    const fields = [
+      { label:'Full Name',     db:d.db_name,    hr:d.hr_name,    ok:d.name_verified,    detail:d.name_match_status==='Partial'?'Partial match':'' },
+      { label:'Date of Birth', db:d.db_dob,     hr:d.hr_dob,     ok:d.dob_verified,     detail:'' },
+      { label:'Address',       db:d.db_address, hr:d.hr_address, ok:d.address_verified, detail:d.address_history_status==='Previous Address'?'Matches previous address':'' },
+    ];
+    document.getElementById('tab-identity').innerHTML = `
+      <div class="flex items-center gap-3 flex-wrap mb-6">
+        <span class="badge ${sec.cached?'badge-cached':'badge-clear'}">${sec.cached?'⚡ CACHED v'+sec.version:'✓ FRESH v'+sec.version}</span>
+        <span class="badge ${hasMismatch?'badge-flagged':'badge-clear'}">${hasMismatch?'FLAGGED':'CLEAR'}</span>
+        ${d._generated ? '<span class="badge badge-gen">⚙ SYNTHETIC</span>' : '<span class="badge badge-clear">✓ OFFICIAL</span>'}
+        ${retryBadge(sec)}
+        <span class="badge badge-idle">Aadhaar: ${d.id_number||'—'}</span>
+      </div>
+      ${hasMismatch ? `
+        <div class="mb-6 p-5 rounded-xl" style="background:#ef444415;border:2px solid #ef4444;">
+          <div class="flex items-center gap-2 mb-3">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            <span style="color:#ef4444;font-size:16px;font-weight:700;">MISMATCHES DETECTED</span>
+          </div>
+          ${mismatches.map(m=>`<div class="p-3 rounded-lg mb-2 flex gap-3" style="background:#ef444420;">
+            <span style="color:#ef4444;">⚠</span>
+            <span style="color:#fca5a5;font-size:14px;font-family:'IBM Plex Mono',monospace;">${m}</span>
+          </div>`).join('')}
+        </div>` : `
+        <div class="flex items-center gap-2 mb-6 p-4 rounded-xl" style="background:#00d4aa10;border:1px solid #00d4aa44;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4aa" stroke-width="2.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span style="color:#00d4aa;font-size:15px;font-weight:600;">All fields match — identity verified</span>
+        </div>`}
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px;">DB Record vs HR Entry</div>
+      <table class="compare-table">
+        <thead><tr><th>Field</th><th>📋 DB Record (Aadhaar)</th><th>✏️ HR Entered</th><th>Status</th></tr></thead>
+        <tbody>${fields.map(f=>`<tr>
+          <td class="field-label">${f.label}</td>
+          <td class="db-val">${f.db||'—'}</td>
+          <td class="hr-val ${f.ok?'match':'mismatch'}">${f.hr||'—'} ${!f.ok&&f.detail?'<span style="font-size:11px;color:#f87171;">('+f.detail+')</span>':''}</td>
+          <td class="status-icon">${f.ok?'✅':'❌'}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      <div class="grid-kv mt-4 mb-4">
+        <div class="kv-item"><div class="kv-label">Name Match Status</div><div class="kv-val" style="color:${d.name_match_status==='Confirmed'?'#00d4aa':d.name_match_status==='Partial'?'#f59e0b':'#ef4444'}">${d.name_match_status||'—'}</div></div>
+        <div class="kv-item"><div class="kv-label">Address History</div><div class="kv-val" style="color:${d.address_history_status==='Not Found'?'#ef4444':d.address_history_status==='Previous Address'?'#f59e0b':'#00d4aa'}">${d.address_history_status||'—'}</div><div style="color:var(--muted);font-size:11px;margin-top:4px;">${(d.address_history_checked||[]).length} address(es) checked</div></div>
+        <div class="kv-item"><div class="kv-label">ID Type / Number</div><div class="kv-val">${d.id_type||'—'}</div><div style="color:var(--muted);font-size:12px;margin-top:4px;font-family:'IBM Plex Mono',monospace;">${d.id_number||'—'}</div></div>
+        <div class="kv-item" style="${d.id_expired?'border:1px solid #ef4444;background:#ef444410;':''}"><div class="kv-label">ID Expiry</div><div class="kv-val" style="color:${d.id_expired?'#ef4444':'inherit'}">${d.id_expiry||'—'} ${d.id_expired?'⚠ EXPIRED':''}</div></div>
+        <div class="kv-item"><div class="kv-label">Risk Score</div><div class="kv-val" style="color:${rC(d.risk_score||0)}">${d.risk_score??'—'}/10</div></div>
+        <div class="kv-item"><div class="kv-label">Confidence</div><div class="kv-val">${d.confidence??'—'}%</div><div style="background:var(--border);border-radius:4px;height:4px;margin-top:6px;overflow:hidden;"><div style="height:100%;width:${d.confidence||0}%;background:${(d.confidence||0)>=80?'#00d4aa':(d.confidence||0)>=50?'#f59e0b':'#ef4444'};border-radius:4px;"></div></div></div>
+      </div>
+      ${(d.db_prev_addresses||[]).length?`<div style="font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px;">Previous Addresses on Record</div><div class="flex flex-wrap gap-2">${(d.db_prev_addresses||[]).map(a=>`<span style="background:#0d1014;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;font-family:'IBM Plex Mono',monospace;color:var(--muted);">${a}</span>`).join('')}</div>`:''}`;
+  }
+
+  function renderCriminal(sec) {
+    const d = sec.data || {};
+    if (sec.status === 'failed' || sec.status === 'timeout') {
+      document.getElementById('tab-criminal').innerHTML = errHtml(sec.error_message || d.error, sec.status, sec.retry_count);
+      return;
+    }
+    const sc = d.overall_status === 'Clear' ? '#00d4aa' : '#ef4444';
+    document.getElementById('tab-criminal').innerHTML = `
+      <div class="flex items-center gap-3 flex-wrap mb-6">
+        <span class="badge ${sec.cached?'badge-cached':'badge-clear'}">${sec.cached?'⚡ CACHED v'+sec.version:'✓ FRESH v'+sec.version}</span>
+        <span class="badge ${d.flagged?'badge-flagged':'badge-clear'}">${d.flagged?'FLAGGED':'CLEAR'}</span>
+        ${retryBadge(sec)}
+      </div>
+      <div class="grid-kv mb-6">
+        <div class="kv-item"><div class="kv-label">Overall Status</div><div class="kv-val" style="color:${sc}">${d.overall_status||'—'}</div></div>
+        <div class="kv-item"><div class="kv-label">Records Found</div><div class="kv-val" style="color:${d.records_count>0?'#ef4444':'inherit'}">${d.records_count??0}</div></div>
+        <div class="kv-item"><div class="kv-label">Sex Offender</div><div class="kv-val" style="color:${d.sex_offender_registry?'#ef4444':'#00d4aa'}">${d.sex_offender_registry?'⚠ YES':'✓ NO'}</div></div>
+        <div class="kv-item"><div class="kv-label">Interpol</div><div class="kv-val" style="color:${d.interpol_check?'#ef4444':'#00d4aa'}">${d.interpol_check?'⚠ HIT':'✓ CLEAR'}</div></div>
+        <div class="kv-item"><div class="kv-label">Risk Score</div><div class="kv-val" style="color:${rC(d.risk_score||0)}">${d.risk_score??'—'}/10</div></div>
+        <div class="kv-item"><div class="kv-label">Jurisdictions</div><div class="kv-val">${(d.jurisdictions_checked||[]).length} checked</div></div>
+      </div>
+      ${d.records&&d.records.length?`
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px;">Criminal Records</div>
+        <div class="space-y-3">${d.records.map(r=>`
+          <div class="p-5 rounded-xl" style="background:#ef444410;border:1px solid #ef444430;">
+            <div class="flex justify-between items-start flex-wrap gap-2">
+              <div style="color:#fca5a5;font-size:16px;font-weight:600;">${r.type}</div>
+              <div class="flex gap-2">
+                <span class="badge ${r.record_type==='Conviction'?'badge-flagged':r.record_type==='Arrest/Pending'?'badge-warn':'badge-idle'}">${r.record_type||r.status}</span>
+                <span class="badge badge-idle">${r.year}</span>
+              </div>
+            </div>
+            <div style="color:var(--muted);font-size:14px;margin-top:6px;">${r.jurisdiction}</div>
+            <div style="color:var(--muted);font-size:13px;margin-top:4px;">Court Status: <span style="color:var(--text)">${r.status}</span></div>
+          </div>`).join('')}</div>`:
+        `<div style="color:var(--muted);font-size:15px;">No criminal records found.</div>`}`;
+  }
+
+  function renderFinancial(sec) {
+    const d = sec.data || {};
+    if (sec.status === 'failed' || sec.status === 'timeout') {
+      document.getElementById('tab-financial').innerHTML = errHtml(sec.error_message || d.error, sec.status, sec.retry_count);
+      return;
+    }
+    const cc = d.credit_status==='Excellent'||d.credit_status==='Good' ? '#00d4aa' : d.credit_status==='Fair' ? '#f59e0b' : '#ef4444';
+    document.getElementById('tab-financial').innerHTML = `
+      <div class="flex items-center gap-3 flex-wrap mb-6">
+        <span class="badge ${sec.cached?'badge-cached':'badge-clear'}">${sec.cached?'⚡ CACHED v'+sec.version:'✓ FRESH v'+sec.version}</span>
+        <span class="badge ${d.flagged?'badge-flagged':'badge-clear'}">${d.flagged?'FLAGGED':'CLEAR'}</span>
+        <span class="badge ${d.compliance_status==='Compliant'?'badge-clear':'badge-flagged'}">${d.compliance_status||'—'}</span>
+        ${retryBadge(sec)}
+      </div>
+      <div class="grid-kv mb-6">
+        <div class="kv-item"><div class="kv-label">Credit Score</div><div class="kv-val" style="color:${cc}">${d.credit_score||'—'}</div><div style="color:var(--muted);font-size:13px;margin-top:4px;">${d.credit_status||'—'}</div></div>
+        <div class="kv-item"><div class="kv-label">Fraud Indicators</div><div class="kv-val" style="color:${d.fraud_indicators==='None'?'#00d4aa':d.fraud_indicators==='Low'?'#f59e0b':'#ef4444'}">${d.fraud_indicators||'—'}</div></div>
+        <div class="kv-item"><div class="kv-label">Sanctions</div><div class="kv-val" style="color:${d.sanctions_check?'#ef4444':'#00d4aa'}">${d.sanctions_check?'⚠ HIT':'✓ CLEAR'}</div></div>
+        <div class="kv-item"><div class="kv-label">Bankruptcy</div><div class="kv-val" style="color:${d.bankruptcy?'#f59e0b':'#00d4aa'}">${d.bankruptcy?'⚠ YES':'✓ NO'}</div></div>
+        <div class="kv-item"><div class="kv-label">PEP Status</div><div class="kv-val" style="color:${d.pep_status?'#ef4444':'#00d4aa'}">${d.pep_status?'⚠ YES':'✓ NO'}</div></div>
+        <div class="kv-item"><div class="kv-label">Risk Score</div><div class="kv-val" style="color:${rC(d.risk_score||0)}">${d.risk_score??'—'}/10</div></div>
+      </div>
+      ${d.flags&&d.flags.length?`
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:10px;">Active Flags</div>
+        <div class="flex flex-wrap gap-2">${d.flags.map(f=>`<span class="tag">${f}</span>`).join('')}</div>`:
+        `<div style="color:var(--muted);font-size:15px;">No financial flags raised.</div>`}`;
+  }
+
+  function renderAudit(trail) {
+    if (!trail||!trail.length) { document.getElementById('tab-audit').innerHTML=`<div style="color:var(--muted);font-size:15px;">No audit entries yet.</div>`; return; }
+    document.getElementById('tab-audit').innerHTML = `
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:14px;">Modification History — ${trail.length} entries</div>
+      <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
+        ${trail.map((e,i)=>`
+          <div class="audit-row p-4 flex items-center justify-between gap-4" style="background:${i%2===0?'#0d1014':'#0a0c0f'}">
+            <div class="flex items-center gap-4">
+              <div class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${e.tool==='HR Decision'?(e.action.includes('ACCEPTED')?'#10b981':'#ef4444'):e.tool==='HR Feedback'?'#a855f7':e.action&&e.action.includes('FAILED')?'#ef4444':'var(--accent)'}"></div>
+              <div>
+                <div style="font-size:15px;font-weight:500;">${e.tool}</div>
+                <div class="mono" style="color:var(--muted);font-size:13px;margin-top:2px;">${e.action}</div>
+              </div>
+            </div>
+            <div class="text-right flex-shrink-0">
+              ${e.hash?`<div class="mono" style="color:var(--muted);font-size:12px;">hash:${e.hash}</div>`:''}
+              <div style="color:var(--muted);font-size:13px;">${new Date(e.timestamp).toLocaleTimeString()}</div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  function errHtml(msg, status, retries) {
+    const isTimeout = status === 'timeout';
+    return `<div class="p-5 rounded-xl" style="background:#ef444410;border:1px solid #ef444440;">
+      <div style="color:#ef4444;font-size:16px;font-weight:600;margin-bottom:6px;">${isTimeout?'Tool timed out':'Tool execution failed'} ${retries>0?`after ${retries} retries`:''}</div>
+      <div style="color:var(--muted);font-size:14px;">${msg||'Unknown error'}</div>
+      <div style="color:var(--muted);font-size:13px;margin-top:8px;">The report shows results from other tools. Re-verify this section using the panel on the left.</div>
+    </div>`;
+  }
+
+  async function submitDecision(decision) {
+    if (!threadId) { showToast('No active verification session.'); return; }
+
+    const remarks = document.getElementById('decision-remarks').value.trim();
+    const btnAccept = document.getElementById('btn-accept');
+    const btnReject = document.getElementById('btn-reject');
+
+    // Disable both buttons while processing
+    btnAccept.disabled = true;
+    btnReject.disabled = true;
+    btnAccept.textContent = decision === 'accepted' ? 'Processing...' : 'Accept Candidate';
+    btnReject.textContent = decision === 'rejected' ? 'Processing...' : 'Reject Candidate';
+
+    try {
+      const res = await fetch(API + '/decide', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          thread_id: threadId,
+          decision:  decision,
+          remarks:   remarks || null,
+        })
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast(json.detail || 'Decision failed');
+        btnAccept.disabled = false;
+        btnReject.disabled = false;
+        btnAccept.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg> Accept Candidate';
+        btnReject.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg> Reject Candidate';
+        return;
+      }
+
+      // Update report with decision
+      currentReport = json.report;
+      renderReport(json.report);
+
+      // Hide re-verify panel — verification is closed
+      document.getElementById('rerun-panel').style.display = 'none';
+
+      const label = decision === 'accepted' ? 'ACCEPTED ✓' : 'REJECTED ✗';
+      const color = decision === 'accepted' ? '#10b981' : '#ef4444';
+      showToast(`Candidate ${label}`);
+
+    } catch(e) {
+      showToast('Error submitting decision — please try again.');
+      btnAccept.disabled = false;
+      btnReject.disabled = false;
+    }
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = 'show';
+    setTimeout(() => t.className = '', 3500);
+  }
+</script>
+</body>
+</html>
