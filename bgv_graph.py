@@ -1,4 +1,3 @@
-
 """
 BGV System — Approach 3: Production Architecture (fixed)
 =========================================================
@@ -91,9 +90,9 @@ class BGVState(TypedDict):
     run_tool2: bool
     run_tool3: bool
     human_feedback: HumanFeedback
-    hr_decision: Optional[str]   
+    hr_decision: Optional[str]   # "accepted" | "rejected" | None — set by HR after review
     report: Optional[dict]
-    # operator.add merges lists from parallel branches safely
+   
     audit_trail: Annotated[list[dict], operator.add]
     errors:      Annotated[list[str],  operator.add]
 
@@ -137,16 +136,13 @@ def _name_match(a, b):
     return len(set(ap) & set(bp)) / max(len(set(ap)), len(set(bp))) >= 0.8
 
 
-# ─── Tool input payload (read-only data passed via Send) ─────────────────────
-# This is NOT a LangGraph state — it's just a plain dict passed as the
-# Send argument. Subgraphs receive it as their initial state input.
 
 class ToolInput(TypedDict):
     aadhaar: str
     hr_name: str
     hr_dob: str
     hr_address: str
-    prev_version: int   # current tool version (for incrementing)
+    prev_version: int  
 
 
 # ─── Raw execution functions ──────────────────────────────────────────────────
@@ -279,19 +275,6 @@ async def _execute_financial(inp: ToolInput) -> dict:
     }
 
 
-# ─── Subgraph factory ─────────────────────────────────────────────────────────
-#
-# Each subgraph has its OWN isolated state with ONLY the channels it writes:
-#   - tool_result  (ToolState output)
-#   - audit_trail  (list append)
-#   - errors       (list append)
-#   - _retry_count / _last_error  (internal only)
-#
-# The ToolInput (aadhaar, hr_name, etc.) is passed via Send payload and
-# stored in tool_input — it's NOT a shared channel so no concurrent conflict.
-#
-# The parent graph reads the subgraph's output and merges it back into
-# BGVState under the correct tool1/2/3 key in the join node.
 
 def _build_tool_subgraph(execute_fn, tool_label: str):
     """
@@ -300,7 +283,7 @@ def _build_tool_subgraph(execute_fn, tool_label: str):
     """
 
     class SubState(TypedDict):
-        # Read-only input (received via Send payload)
+
         tool_input: ToolInput
         # Written by this subgraph only
         tool_result: Optional[ToolState]
@@ -422,7 +405,7 @@ def route_tools(state: BGVState) -> list[Send]:
     return targets
 
 
-# Wrapper nodes that run subgraphs and write results into BGVState keys
+
 
 async def tool1_node(sub_state: dict) -> dict:
     """Runs identity subgraph, maps tool_result → BGVState.tool1"""
@@ -459,7 +442,7 @@ async def join(state: BGVState) -> dict:
     - Applies corrected HR values from human_feedback
     - Logs HR feedback text to audit trail
     """
-    # Mark skipped tools cached. HR values are already updated by human_feedback_node.
+
     updates = {}
     for key, flag in [("tool1","run_tool1"),("tool2","run_tool2"),("tool3","run_tool3")]:
         if not state[flag] and state[key]["status"] == "completed":
@@ -499,15 +482,72 @@ async def human_feedback_node(state: BGVState) -> dict:
     return updates
 
 
+def _compute_overall_risk(r1: float, r2: float, r3: float) -> tuple[float, str, str]:
+    """
+    Weighted risk scoring — replaces the naive average.
+
+    Why not average?
+      A fraud conviction (Tool 2 score=8) + clean identity (Tool 1 score=0)
+      would average to 4.0 — "Medium". But a convicted fraudster is HIGH risk
+      regardless of whether their name is spelled correctly.
+
+    Approach:
+      1. Weighted sum: Criminal (40%) + Financial (35%) + Identity (25%)
+         Criminal and financial flags are more operationally dangerous than
+         a name/DOB/address mismatch.
+      2. Severity override: if ANY single tool scores >= 8, the overall is
+         capped to High regardless of the weighted score. A serious criminal
+         or sanctions hit must never be diluted by clean other checks.
+      3. Risk level thresholds are tighter than before — Medium starts at 3,
+         High starts at 5.5 (was 6), so severe individual flags surface faster.
+
+    Score breakdown reference:
+      Tool 1 (Identity):  name mismatch=4, DOB=3, address=2, expired ID=3  → max 10
+      Tool 2 (Criminal):  any crimes=4, interpol=4, sex offender=5          → max 10
+      Tool 3 (Financial): fraud_High=5, sanctions=4, PEP=3, bankruptcy=2,
+                          adverse_media=2, litigation=1                      → max 10
+    """
+
+    weighted = round(r2 * 0.40 + r3 * 0.35 + r1 * 0.25, 1)
+
+    # Severity override rules
+    max_single  = max(r1, r2, r3)
+    max_crim_fin = max(r2, r3)  
+
+    if max_single >= 8:
+
+        risk_level = "High"
+        weighted   = max(weighted, 7.0)
+    elif max_crim_fin >= 6:
+
+        risk_level = "High"
+        weighted   = max(weighted, 5.5)
+    elif weighted >= 5.5:
+
+        risk_level = "High"
+    elif max_single >= 5:
+
+        risk_level = "High"
+        weighted   = max(weighted, 5.5)
+    elif weighted >= 3.0 or max_crim_fin >= 4:
+
+        risk_level = "Medium"
+    else:
+        risk_level = "Low"
+
+    return weighted, risk_level
+
+
 async def generate_report(state: BGVState) -> dict:
     t1, t2, t3 = state["tool1"], state["tool2"], state["tool3"]
     r1 = (t1["output"] or {}).get("risk_score", 0)
     r2 = (t2["output"] or {}).get("risk_score", 0)
     r3 = (t3["output"] or {}).get("risk_score", 0)
-    overall_risk   = round((r1+r2+r3)/3, 1)
+
+    overall_risk, risk_level = _compute_overall_risk(r1, r2, r3)
+
     any_flagged    = any((t["output"] or {}).get("flagged", False) for t in [t1,t2,t3])
     overall_status = "FLAGGED" if any_flagged else "CLEAR"
-    risk_level     = "High" if overall_risk>=6 else "Medium" if overall_risk>=3 else "Low"
     completed      = sum(1 for t in [t1,t2,t3] if t["status"]=="completed")
     db_name        = (t1["output"] or {}).get("db_name", state["hr_name"])
     now            = _now()
@@ -544,7 +584,7 @@ async def generate_report(state: BGVState) -> dict:
     return {"report": report}
 
 
-
+# ─── Graph assembly ───────────────────────────────────────────────────────────
 
 checkpointer = MemorySaver()
 
@@ -562,7 +602,6 @@ def build_bgv_graph():
 
     builder.set_entry_point("dispatch_node")
 
-    # dispatch_node → parallel fan-out via route_tools condition
     builder.add_conditional_edges(
         "dispatch_node",
         route_tools,
@@ -573,13 +612,12 @@ def build_bgv_graph():
     builder.add_edge("tool2_node", "join")
     builder.add_edge("tool3_node", "join")
 
-    # join → conditional: pause (first pass) or report (re-run)
     builder.add_conditional_edges(
         "join", route_after_join,
         {"human_feedback_node": "human_feedback_node", "generate_report": "generate_report"}
     )
 
-    # After HR feedback: back to dispatch for selective re-run
+
     builder.add_edge("human_feedback_node", "dispatch_node")
     builder.add_edge("generate_report",     END)
 
@@ -635,7 +673,6 @@ async def resume_with_feedback(
     hr_address: Optional[str] = None,
 ) -> dict:
     config = {"configurable": {"thread_id": thread_id}}
-    
     state_update = {
         "human_feedback": HumanFeedback(
             feedback_text=feedback_text,
@@ -648,11 +685,10 @@ async def resume_with_feedback(
     if hr_dob:     state_update["hr_dob"]     = hr_dob
     if hr_address: state_update["hr_address"] = hr_address
 
-    # Write run_tool flags directly so checkpointer stores them before resume.
+
     state_update["run_tool1"] = run_tool1
     state_update["run_tool2"] = run_tool2
     state_update["run_tool3"] = run_tool3
-
 
     if feedback_text:
         state_update["audit_trail"] = [{
@@ -708,7 +744,7 @@ async def submit_decision(
         "action": f"Candidate {label.upper()}" + (f" — {remarks}" if remarks else ""),
     }
 
-   
+ 
     await _graph.aupdate_state(
         config,
         {
@@ -727,7 +763,7 @@ async def submit_decision(
         as_node="human_feedback_node",
     )
 
-    # Resume graph — flows: dispatch → join (all cached) → generate_report → END
+
     state  = await _graph.ainvoke(None, config=config)
     report = state.get("report", {})
     report["thread_id"]        = thread_id
@@ -741,10 +777,9 @@ def _build_partial_report(state: BGVState, thread_id: str) -> dict:
     r1 = (t1["output"] or {}).get("risk_score", 0)
     r2 = (t2["output"] or {}).get("risk_score", 0)
     r3 = (t3["output"] or {}).get("risk_score", 0)
-    overall_risk   = round((r1+r2+r3)/3, 1)
+    overall_risk, risk_level = _compute_overall_risk(r1, r2, r3)
     any_flagged    = any((t["output"] or {}).get("flagged", False) for t in [t1,t2,t3])
     overall_status = "FLAGGED" if any_flagged else "CLEAR"
-    risk_level     = "High" if overall_risk>=6 else "Medium" if overall_risk>=3 else "Low"
     db_name        = (t1["output"] or {}).get("db_name", state["hr_name"])
 
     return {

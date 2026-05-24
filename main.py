@@ -28,7 +28,7 @@ class RerunRequest(BaseModel):
     The graph state is stored in the checkpointer keyed by thread_id.
     FastAPI no longer maintains a sessions{} dict.
     """
-    thread_id: str                  # returned by /verify, used to resume graph
+    thread_id: str                  
     rerun_tool1: bool = False
     rerun_tool2: bool = False
     rerun_tool3: bool = False
@@ -40,7 +40,7 @@ class RerunRequest(BaseModel):
 class DecisionRequest(BaseModel):
     thread_id: str
     decision: str          # "accepted" or "rejected"
-    remarks: Optional[str] = None   # optional HR remarks
+    remarks: Optional[str] = None  
 
 class SuggestRequest(BaseModel):
     feedback: str
@@ -51,7 +51,7 @@ class SuggestRequest(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_ui():
-    with open("templates/index.html") as f:
+    with open("templates/index.html", encoding="utf-8") as f:
         return f.read()
 
 

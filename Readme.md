@@ -1,6 +1,6 @@
 # BGV System — Aadhaar-Based Background Verification
 
-
+> **Production-grade multi-agent verification pipeline built with LangGraph, FastAPI, and parallel tool execution.**
 
 ---
 
@@ -11,14 +11,13 @@
 3. [Tech Stack](#tech-stack)
 4. [Project Structure](#project-structure)
 5. [How It Works](#how-it-works)
-6. [LangGraph Pipeline — Deep Dive](#langgraph-pipeline--deep-dive)
-7. [State Management](#state-management)
-8. [Verification Tools](#verification-tools)
-9. [Selective Re-verification](#selective-re-verification)
-10. [AI-Powered Suggestions](#ai-powered-suggestions)
-11. [Audit Trail](#audit-trail)
-12. [Demo Candidates](#demo-candidates)
-13. [How to Run](#how-to-run)
+6. [State Management](#state-management)
+7. [Verification Tools](#verification-tools)
+8. [Selective Re-verification](#selective-re-verification)
+9. [AI-Powered Suggestions](#ai-powered-suggestions)
+10. [Audit Trail](#audit-trail)
+11. [Demo Candidates](#demo-candidates)
+12. [How to Run](#how-to-run)
 
 
 ---
@@ -29,7 +28,7 @@ The BGV System automates candidate background verification for HR teams. HR ente
 
 **Key capabilities:**
 
-- All three verification checks run **in parallel** 
+- All three verification checks run **in parallel**
 - Every tool has **retry logic** with exponential back-off and **timeout protection**
 - A tool failing in isolation **never crashes the report** — the other tools complete normally
 - HR can **selectively re-run** only the checks that need correction without re-running everything
@@ -40,15 +39,11 @@ The BGV System automates candidate background verification for HR teams. HR ente
 
 ## System Architecture
 
-
-
-
 ### LangGraph Graph — Actual Node Visualisation
 
 > Generated directly from LangGraph. Every box is a real registered node. Dashed lines show conditional edges. The `__interrupt = before` annotation on `human_feedback_node` is the pause point.
 
-
-![alt text](bgv_langgraph_diagram.png)
+![LangGraph Node Diagram](bgv_langgraph_diagram.png)
 
 > **Reading the diagram:**
 > - `dispatch_node → tool1_node / tool2_node / tool3_node` — conditional fan-out via `route_tools()`, fired in parallel
@@ -156,20 +151,6 @@ This means:
 
 ---
 
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Backend API | FastAPI + Uvicorn |
-| Pipeline orchestration | LangGraph 0.2+ |
-| State checkpointing | LangGraph MemorySaver |
-| Async execution | Python asyncio |
-| HTTP client (AI calls) | httpx |
-| Frontend | HTML + Tailwind CSS + Vanilla JS |
-| Language | Python 3.11+ |
-
----
-
 ## Project Structure
 
 ```
@@ -226,90 +207,6 @@ If the report flags a mismatch, HR can:
 3. Click **Run Selected Checks**
 
 Only the selected tools re-execute. Unaffected tools serve their **cached result instantly** — no wasted computation.
-
----
-
-## LangGraph Pipeline — Deep Dive
-
-### Why two separate functions for routing?
-
-LangGraph has a strict rule:
-- Registered **nodes** must return `dict` (state update)
-- **Condition functions** passed to `add_conditional_edges` can return `list[Send]` for parallel fan-out
-
-Mixing both in one function causes `InvalidUpdateError`. The solution:
-
-```python
-# dispatch_node — registered node, returns {} (no state change)
-async def dispatch_node(state: BGVState) -> dict:
-    return {}
-
-# route_tools — condition function only, returns list[Send]
-def route_tools(state: BGVState) -> list[Send]:
-    targets = []
-    if state["run_tool1"]: targets.append(Send("tool1_node", make_input(state["tool1"])))
-    if state["run_tool2"]: targets.append(Send("tool2_node", make_input(state["tool2"])))
-    if state["run_tool3"]: targets.append(Send("tool3_node", make_input(state["tool3"])))
-    return targets
-
-# Wired separately
-builder.add_conditional_edges("dispatch_node", route_tools, [...])
-```
-
-### Why isolated SubState per subgraph?
-
-When three subgraphs run in parallel via `Send()`, LangGraph merges their return dicts into the parent state. If all three subgraphs declare shared fields like `aadhaar` or `hr_name`, LangGraph sees three concurrent writes to the same channel → `InvalidUpdateError`.
-
-**Fix:** Each subgraph has its own isolated `SubState` that only declares the channels it writes:
-
-```python
-class SubState(TypedDict):
-    tool_input: ToolInput    # read-only input (from Send payload)
-    tool_result: Optional[ToolState]   # what this subgraph writes
-    audit_trail: Annotated[list[dict], operator.add]
-    errors:      Annotated[list[str],  operator.add]
-    _retry_count: int
-    _last_error: str
-```
-
-`aadhaar`, `hr_name`, etc. are passed in `tool_input` (read-only, not a shared channel).
-
-### Why `operator.add` on `audit_trail` and `errors`?
-
-When parallel branches both append to a list, LangGraph needs to know how to merge them. `Annotated[list[dict], operator.add]` tells LangGraph to **concatenate** the lists from all parallel branches, not overwrite.
-
-### The human-in-the-loop pattern
-
-```python
-# Graph compiled with:
-builder.compile(
-    checkpointer=MemorySaver(),
-    interrupt_before=["human_feedback_node"],
-)
-```
-
-**First run:** Graph runs all tools → reaches `human_feedback_node` → **halts**. State is saved to checkpointer under `thread_id`. FastAPI returns the partial report.
-
-**Re-run:** FastAPI calls `graph.aupdate_state()` to inject HR's feedback, then `graph.ainvoke(None, config)` with `None` input — this **resumes from the pause point**, not re-invokes from scratch.
-
-**Why write flags directly to `aupdate_state`?**
-
-`as_node="human_feedback_node"` marks that node as already completed — its body never re-executes. All state updates (HR values, run_tool flags, feedback audit entry) must be written **directly** in the `state_update` dict passed to `aupdate_state`.
-
-```python
-await _graph.aupdate_state(
-    config,
-    {
-        "human_feedback": HumanFeedback(..., submitted=True),
-        "hr_dob":     "1992-05-14",   # corrected value — direct to BGVState
-        "run_tool1":  True,            # direct to BGVState — join reads this
-        "run_tool2":  False,
-        "run_tool3":  False,
-        "audit_trail": [feedback_entry],  # operator.add appends it
-    },
-    as_node="human_feedback_node",
-)
-```
 
 ---
 
@@ -402,17 +299,28 @@ Compares HR-entered values against Aadhaar DB record:
 
 ### Overall Risk Score
 
-```
-overall_risk = round((tool1.risk_score + tool2.risk_score + tool3.risk_score) / 3, 1)
+**Why not a simple average?**
+
+Averaging treats all three tools as equally dangerous — which they are not. A name spelling mismatch and a fraud conviction are completely different in severity. With a naive average:
+
+```python
+# WRONG — the old approach
+(identity=0 + criminal=8 + financial=0) / 3 = 2.7 → "Low"
+# An Interpol hit was showing as Low risk. Completely wrong.
 ```
 
-| Score | Level |
-|---|---|
-| ≥ 6.0 | High |
-| ≥ 3.0 | Medium |
-| < 3.0 | Low |
+**The fix — weighted scoring with severity override (`_compute_overall_risk()`):**
 
-Report is `FLAGGED` if **any** tool has `flagged: True`.
+Step 1 is a weighted sum with criminal at 40%, financial at 35%, and identity at 25% — because criminal convictions and sanctions are hard operational blockers, while a name/DOB mismatch is often a data entry error. Step 2 applies severity overrides so a single critical finding can never be diluted by clean results from other tools.
+
+| Tool | Weight | Reason |
+|---|---|---|
+| Tool 2 — Criminal | **40%** | Convictions are a hard HR/legal blocker |
+| Tool 3 — Financial | **35%** | Sanctions, PEP, fraud are regulatory risks |
+| Tool 1 — Identity | **25%** | Name/DOB mismatches are often data entry errors |
+
+
+
 
 ---
 
@@ -558,7 +466,7 @@ Any **unknown Aadhaar** number triggers the synthetic record generator — deter
 
 ```bash
 git clone <repo-url>
-cd bgv
+go inside the cloned folder
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 ```
@@ -613,221 +521,3 @@ Navigate to **http://localhost:8000** in your browser.
 The AI Suggest feature requires an API key. Enter it in the top-right field of the UI and click **SAVE**. The key is used only for `/suggest-rerun` calls.
 
 ---
-
-## API Reference
-
-### `POST /verify`
-
-Run full verification for a new candidate.
-
-**Request:**
-```json
-{
-  "aadhaar": "1234-5678-9012",
-  "hr_name": "Rahul Sharma",
-  "hr_dob": "1992-05-14",
-  "hr_address": "42 Marine Lines, Mumbai, MH 400001"
-}
-```
-
-**Response:**
-```json
-{
-  "thread_id": "uuid-v4",
-  "report": {
-    "candidate_name": "Rahul Sharma",
-    "executive_summary": {
-      "overall_status": "CLEAR",
-      "risk_level": "Low",
-      "overall_risk_score": 0.0,
-      "sections_completed": 3,
-      "any_flagged": false
-    },
-    "personal_identity": { "status": "completed", "version": 1, "cached": false, "data": {...} },
-    "criminal_background": { "status": "completed", "version": 1, "cached": false, "data": {...} },
-    "financial_fraud": { "status": "completed", "version": 1, "cached": false, "data": {...} },
-    "audit_trail": [...],
-    "errors": []
-  }
-}
-```
-
----
-
-### `POST /rerun`
-
-Re-run selected checks for an existing verification session.
-
-**Request:**
-```json
-{
-  "thread_id": "uuid-from-verify",
-  "rerun_tool1": true,
-  "rerun_tool2": false,
-  "rerun_tool3": false,
-  "feedback": "DOB was entered incorrectly",
-  "hr_dob": "1992-05-14"
-}
-```
-
-**Response:** Same structure as `/verify`, with updated tool versions and cached flags.
-
----
-
-### `POST /suggest-rerun`
-
-Use AI to determine which tools need re-running based on HR feedback.
-
-**Request:**
-```json
-{
-  "feedback": "The candidate's address does not seem correct",
-  "openai_key": "ak-..."
-}
-```
-
-**Response:**
-```json
-{
-  "tool1": true,
-  "tool2": false,
-  "tool3": false,
-  "reasoning": "Address is verified by Tool 1 — Personal Identity"
-}
-```
-
----
-
-### `POST /decide`
-
-HR's final Accept / Reject decision. Resumes the paused graph and drives it to `__end__`.
-
-**Request:**
-```json
-{
-  "thread_id": "uuid-from-verify",
-  "decision": "accepted",
-  "remarks": "All checks passed, suitable for the role"
-}
-```
-
-**Response:** Full final report with `hr_decision` field set and all tools showing `cached: true`.
-
-```json
-{
-  "thread_id": "...",
-  "hr_decision": "accepted",
-  "paused_for_review": false,
-  "audit_trail": [
-    { "tool": "Personal Identity", "action": "executed", ... },
-    { "tool": "Criminal Background", "action": "executed", ... },
-    { "tool": "Financial & Fraud", "action": "executed", ... },
-    { "tool": "HR Decision", "action": "Candidate ACCEPTED — All checks passed", ... }
-  ]
-}
-```
-
----
-
-### `GET /demo-candidates`
-
-Returns the four pre-loaded demo candidates for quick-fill.
-
----
-
-## Key Design Decisions
-
-### Why LangGraph over plain asyncio?
-
-LangGraph provides a typed state machine with explicit node boundaries, built-in checkpointing, interrupt/resume for human-in-the-loop patterns, and automatic audit of state transitions. Plain asyncio would require manually implementing all of this.
-
-### Why `interrupt_before` instead of FastAPI managing the loop?
-
-In Approach 2 (the previous version), FastAPI held `BGVState` in a `sessions{}` dict and re-invoked `graph.ainvoke()` from scratch on every re-run. This meant:
-- State was lost on server restart
-- The feedback loop was an external workaround, not a first-class graph concern
-
-With `interrupt_before` + `MemorySaver`, the graph **owns its lifecycle** — it pauses, the checkpointer stores state durably, and `ainvoke(None, same_thread_id)` resumes from the exact pause point.
-
-### Why dispatch_node + route_tools as separate functions?
-
-LangGraph nodes must return `dict`. The `list[Send]` return needed for parallel fan-out is only valid as a condition function passed to `add_conditional_edges`. Combining both in one function causes `InvalidUpdateError`. Two separate functions keeps the API contract clear.
-
-### Why isolated SubState per subgraph?
-
-Three parallel subgraphs writing to shared BGVState channels causes concurrent write conflicts. Each subgraph declares only the channels it writes — the rest is passed as a read-only `ToolInput` payload via `Send`. The parent graph maps `tool_result` back to the correct `tool1/2/3` key in wrapper nodes.
-
-### Why write corrected values directly in `aupdate_state`?
-
-`as_node="human_feedback_node"` marks the node as already completed — its body never re-executes on resume. Any state updates (corrected HR values, run_tool flags, feedback audit entry) must be written directly in the `state_update` dict passed to `aupdate_state`, not inside the node function body.
-
-### Complete graph lifecycle (with decision)
-
-```
-╔══════════════════════════════════════════════════════════════╗
-║                   COMPLETE LIFECYCLE                         ║
-╚══════════════════════════════════════════════════════════════╝
-
-1. POST /verify
-      │
-      ▼
-   All 3 tools run IN PARALLEL (T1 + T2 + T3 simultaneously)
-      │
-      ▼
-   ⏸ PAUSED at human_feedback_node  ←── MemorySaver stores state
-      │
-      ▼
-   Report returned to HR  (paused_for_review: true)
-      │
-      ├──── HR sees a mismatch ──────────────────────────────────┐
-      │                                                          │
-      │     2. POST /rerun (correct value + select tool)         │
-      │           │                                              │
-      │           ▼                                              │
-      │        Selected tools re-run in PARALLEL                 │
-      │           │                                              │
-      │           ▼                                              │
-      │        ⏸ PAUSED again at human_feedback_node            │
-      │           │                                              │
-      │           ▼                                              │
-      │        Updated report returned to HR                     │
-      │           │                                              │
-      │           └──────────────────────────────────────────────┘
-      │                (can repeat re-run as many times as needed)
-      │
-      └──── HR is satisfied with report ────────────────────────┐
-                                                                │
-           3a. POST /decide  { decision: "accepted" }           │
-                 │                                              │
-                 ▼                                              │
-              submitted=True, ALL run_tool=False                │
-              graph resumes → dispatch → join (all cached)      │
-              → generate_report (hr_decision="accepted")        │
-              → ✅ __end__  (graph fully complete)              │
-                                                                │
-           3b. POST /decide  { decision: "rejected" }           │
-                 │                                              │
-                 ▼                                              │
-              submitted=True, ALL run_tool=False                │
-              graph resumes → dispatch → join (all cached)      │
-              → generate_report (hr_decision="rejected")        │
-              → ✅ __end__  (graph fully complete)              │
-                                                                │
-           ◀──────────────────────────────────────────────────┘
-
-Final report contains:
-  • All tool results (fresh or cached with version numbers)
-  • hr_decision: "accepted" | "rejected"
-  • Complete audit trail: tool executions + HR feedback + HR decision
-  • paused_for_review: false
-```
-
-### Production upgrade path
-
-| Feature | Current (prototype) | Production upgrade |
-|---|---|---|
-| State persistence | `MemorySaver` (in-memory) | `SqliteSaver` or `RedisSaver` |
-| Authentication | None | JWT middleware on all routes |
-| DB layer | Python dict + generator | Real Aadhaar API integration |
-| Tool parallelism | 3 fixed tools | Dynamic tool registry |
-| Sessions | Lost on restart | Durable via checkpointer swap |
