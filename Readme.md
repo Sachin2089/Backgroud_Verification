@@ -47,7 +47,8 @@ The BGV System automates candidate background verification for HR teams. HR ente
 
 > Generated directly from LangGraph. Every box is a real registered node. Dashed lines show conditional edges. The `__interrupt = before` annotation on `human_feedback_node` is the pause point.
 
-![alt text](image.png)
+
+![alt text](bgv_langgraph_diagram.png)
 
 > **Reading the diagram:**
 > - `dispatch_node → tool1_node / tool2_node / tool3_node` — conditional fan-out via `route_tools()`, fired in parallel
